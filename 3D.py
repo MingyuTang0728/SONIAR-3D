@@ -1,15 +1,30 @@
-import http.server
-import socketserver
-import webbrowser
+import streamlit as st
+import streamlit.components.v1 as components
 import os
-import sys
+import base64
 
-PORT = 8000
-INDEX_FILE = "index_holo_map.html"
-TARGET_FILE = "UoN Multimodal AI Platform.html"
+# 设置页面配置，使其全屏
+st.set_page_config(layout="wide", page_title="SONAIR 3D Entry")
+
+# 定义文件名
+TARGET_FILE = "UoN Multimodal AI Platform.html" 
 LOGO_FILE = "UoN-Nottingham-Blue.png"
 
-html_content = """
+# --- 辅助函数：将图片转换为 Base64 编码 ---
+# 这样可以确保图片直接嵌入 HTML 中，避免云端路径找不到图片的问题
+def get_image_base64(image_path):
+    if os.path.exists(image_path):
+        with open(image_path, "rb") as img_file:
+            return base64.b64encode(img_file.read()).decode()
+    return ""
+
+# 获取 Logo 的 Base64 字符串
+logo_base64 = get_image_base64(LOGO_FILE)
+logo_src = f"data:image/png;base64,{logo_base64}" if logo_base64 else ""
+
+# --- HTML 内容 ---
+# 注意：我把原来的 python 变量替换逻辑改成了 f-string，并注入了 logo
+html_content = f"""
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -18,128 +33,103 @@ html_content = """
     <title>SONAIR | Holographic Entry</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
-        :root {
+        :root {{
             --neon: #00fff2;
             --alert: #ff3333;
             --hud: #00aaff;
             --bg: #000205;
-        }
-        body { 
+        }}
+        body {{ 
             margin: 0; background: var(--bg); overflow: hidden; user-select: none; font-family: 'Orbitron', sans-serif;
             opacity: 1; transition: opacity 1.5s cubic-bezier(0.25, 0.1, 0.25, 1);
-        }
-        body.fading-out { opacity: 0; }
-
+        }}
+        /* ... 这里的 CSS 保持原样 ... */
+        
         /* Intro Animation */
-        #intro-layer {
+        #intro-layer {{
             position: fixed; inset: 0; background: #000; z-index: 10000;
             display: flex; align-items: center; justify-content: center;
             transition: all 1.5s cubic-bezier(0.16, 1, 0.3, 1);
             pointer-events: none;
-        }
-        #intro-text {
+        }}
+        #intro-text {{
             font-size: 6rem; font-weight: 900; color: #fff; letter-spacing: 0.2em;
             text-shadow: 0 0 50px var(--neon);
             transition: all 1.5s cubic-bezier(0.16, 1, 0.3, 1);
             white-space: nowrap;
-        }
-        body.intro-active #intro-layer { background: transparent; }
-        body.intro-active #intro-text {
+        }}
+        body.intro-active #intro-layer {{ background: transparent; }}
+        body.intro-active #intro-text {{
             font-size: 1.5rem; 
             transform: translate(calc(-50vw + 160px), calc(-50vh + 50px)); 
             text-shadow: 0 0 10px var(--neon);
             letter-spacing: 0.1em;
-        }
+        }}
 
         /* Camera Feed Container */
-        #cam-preview {
+        #cam-preview {{
             position: absolute; top: 20px; right: 20px; width: 400px; height: 300px;
             border-radius: 4px; overflow: hidden; 
             border: 1px solid var(--neon);
             background: rgba(0,0,0,0.9); z-index: 50; opacity: 0; transition: opacity 1s 2s;
             box-shadow: 0 0 20px rgba(0, 255, 242, 0.1);
-            /* 重要：这里设置 relative 或 absolute，使得内部的绝对定位元素相对于这个框定位 */
-        }
-        body.intro-active #cam-preview { opacity: 1; }
-        #cam-video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+        }}
+        body.intro-active #cam-preview {{ opacity: 1; }}
+        #cam-video {{ width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }}
 
-        /* UoN Logo - 修改定位和大小 */
-        #uon-holo-logo {
-            /* 修改点 1: 调整定位属性，使其相对于父容器(cam-preview)的左上角 */
-            position: absolute; 
-            top: 10px; 
-            left: 10px; 
-            z-index: 60;
-            /* 保持原来的淡入效果 */
-            opacity: 0; 
-            transition: opacity 1s 2s;
-        }
-        body.intro-active #uon-holo-logo { opacity: 1; }
+        /* UoN Logo */
+        #uon-holo-logo {{
+            position: absolute; top: 10px; left: 10px; z-index: 60;
+            opacity: 0; transition: opacity 1s 2s;
+        }}
+        body.intro-active #uon-holo-logo {{ opacity: 1; }}
+        #uon-img {{ height: 35px; width: auto; filter: drop-shadow(0 0 5px rgba(0, 255, 242, 0.5)); }}
 
-        #uon-img { 
-            /* 修改点 2: 稍微调小一点图标以适应视频框 */
-            height: 35px; 
-            width: auto; 
-            filter: drop-shadow(0 0 5px rgba(0, 255, 242, 0.5)); 
-        }
-
-        /* Custom Hand Cursor */
-        #hand-cursor {
+        /* Cursor & UI */
+        #hand-cursor {{
             position: fixed; top: 0; left: 0; width: 30px; height: 30px;
             border: 1px solid rgba(0, 255, 242, 0.5); border-radius: 50%;
             transform: translate(-50%, -50%); pointer-events: none; z-index: 9999;
             box-shadow: 0 0 10px var(--neon); display: none;
             transition: width 0.2s, height 0.2s, border-color 0.2s;
-        }
-        #hand-cursor.zoom-in { 
-            border: 2px solid var(--neon); width: 60px; height: 60px; 
-            background: rgba(0, 255, 242, 0.1); box-shadow: 0 0 30px var(--neon); 
-        }
-        #hand-cursor.zoom-out { 
-            border: 2px solid var(--alert); width: 10px; height: 10px; 
-            background: rgba(255, 50, 50, 0.5); box-shadow: 0 0 30px var(--alert); 
-        }
-        #hand-cursor.hover-uk { border-color: #ffffff; box-shadow: 0 0 20px #ffffff; width: 40px; height: 40px; }
+        }}
+        #hand-cursor.zoom-in {{ border: 2px solid var(--neon); width: 60px; height: 60px; background: rgba(0, 255, 242, 0.1); box-shadow: 0 0 30px var(--neon); }}
+        #hand-cursor.zoom-out {{ border: 2px solid var(--alert); width: 10px; height: 10px; background: rgba(255, 50, 50, 0.5); box-shadow: 0 0 30px var(--alert); }}
+        #hand-cursor.hover-uk {{ border-color: #ffffff; box-shadow: 0 0 20px #ffffff; width: 40px; height: 40px; }}
 
-        /* Instructions */
-        #instructions {
+        #instructions {{
             position: absolute; bottom: 40px; left: 40px; z-index: 50;
             opacity: 0; transition: opacity 1s 2.5s;
-        }
-        body.intro-active #instructions { opacity: 1; }
-        .glass-card {
+        }}
+        body.intro-active #instructions {{ opacity: 1; }}
+        .glass-card {{
             background: rgba(0, 10, 20, 0.7); backdrop-filter: blur(10px);
             border: 1px solid rgba(0, 255, 242, 0.2);
             box-shadow: 0 0 30px rgba(0,0,0,0.5);
-        }
-
-        /* Access Granted Text */
-        #access-granted {
+        }}
+        
+        #access-granted {{
             position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
             color: #fff; font-size: 4rem; font-weight: 900; 
             text-shadow: 0 0 50px var(--neon), 0 0 20px var(--neon);
             opacity: 0; pointer-events: none; z-index: 10001; letter-spacing: 0.3em;
             transition: opacity 0.2s;
-        }
-        body.access-active #access-granted { opacity: 1; }
+        }}
+        body.access-active #access-granted {{ opacity: 1; }}
     </style>
 </head>
 <body>
 
 <div id="intro-layer"><h1 id="intro-text">SONAIR UK</h1></div>
 <div id="access-granted">INITIALIZING...</div>
-
 <div id="hand-cursor"></div>
 
 <div id="cam-preview">
     <video id="cam-video" autoplay muted playsinline></video>
-
     <div id="uon-holo-logo">
-        <img id="uon-img" src="__LOGO_FILE_PLACEHOLDER__" alt="UoN Logo">
+        <img id="uon-img" src="{logo_src}" alt="UoN Logo">
     </div>
-
     <div class="absolute bottom-0 w-full bg-cyan-900/80 text-[10px] text-center text-cyan-300 font-mono py-1 tracking-widest">
         UoN X UTC
     </div>
@@ -163,8 +153,8 @@ html_content = """
 <div id="root"></div>
 
 <script type="importmap">
-{
-  "imports": {
+{{
+  "imports": {{
     "react": "https://esm.sh/react@18.2.0",
     "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
     "three": "https://esm.sh/three@0.150.1",
@@ -172,82 +162,76 @@ html_content = """
     "@react-three/drei": "https://esm.sh/@react-three/drei@9.70.0?deps=three@0.150.1,react@18.2.0,@react-three/fiber@8.13.0",
     "htm": "https://esm.sh/htm@3.1.1",
     "@mediapipe/tasks-vision": "https://esm.sh/@mediapipe/tasks-vision@0.10.8"
-  }
-}
+  }}
+}}
 </script>
 
 <script type="module">
-    import React, { useState, useEffect, useRef, useMemo, Suspense } from 'react';
-    import { createRoot } from 'react-dom/client';
+    import React, {{ useState, useEffect, useRef, useMemo, Suspense }} from 'react';
+    import {{ createRoot }} from 'react-dom/client';
     import htm from 'htm';
     import * as THREE from 'three';
-    import { Canvas, useFrame, useLoader, useThree } from '@react-three/fiber';
-    import { Html, Stars, OrbitControls } from '@react-three/drei';
-    import { FilesetResolver, HandLandmarker } from '@mediapipe/tasks-vision';
+    import {{ Canvas, useFrame, useLoader, useThree }} from '@react-three/fiber';
+    import {{ Html, Stars, OrbitControls }} from '@react-three/drei';
+    import {{ FilesetResolver, HandLandmarker }} from '@mediapipe/tasks-vision';
 
     const html = htm.bind(React.createElement);
-    const TARGET_URL = "./__TARGET_FILE_PLACEHOLDER__";
+    
+    // 注意：Streamlit 中 iframe 无法直接跳转到外部 HTML 文件
+    // 我们这里暂时让它显示跳转提示，或者你需要部署第二个 Streamlit 页面
+    const TARGET_URL = "{TARGET_FILE}"; 
 
     // --- 高科技 UK 光标组件 ---
-    const UKMarker = ({ isHovered, pinchProgress }) => {
+    const UKMarker = ({{ isHovered, pinchProgress }}) => {{
         const bracketRef = useRef();
         const innerRingRef = useRef();
 
-        useFrame((state, delta) => {
-            // 旋转动画
+        useFrame((state, delta) => {{
             if (bracketRef.current) bracketRef.current.rotation.z += delta * 0.5;
             if (innerRingRef.current) innerRingRef.current.rotation.z -= delta * 1.0;
-        });
+        }});
 
-        // 进度条圆环计算
         const radius = 28;
         const circumference = 2 * Math.PI * radius;
         const offset = circumference - (pinchProgress * circumference);
-
         const progressColor = pinchProgress > 0.8 ? "#ff0055" : "#00fff2";
 
         return html`
-            <group position=${[0, 0, 0]}>
-
-                <group rotation=${[Math.PI/2, 0, 0]} ref=${bracketRef}>
+            <group position=${{[0, 0, 0]}}>
+                <group rotation=${{[Math.PI/2, 0, 0]}} ref=${{bracketRef}}>
                     <mesh>
-                        <ringGeometry args=${[0.45, 0.48, 4, 1, 0, 1]} />
-                        <meshBasicMaterial color="#00aaff" side=${THREE.DoubleSide} transparent opacity=${0.6} />
+                        <ringGeometry args=${{[0.45, 0.48, 4, 1, 0, 1]}} />
+                        <meshBasicMaterial color="#00aaff" side=${{THREE.DoubleSide}} transparent opacity=${{0.6}} />
                     </mesh>
-                    <mesh rotation=${[0, 0, Math.PI]}>
-                        <ringGeometry args=${[0.45, 0.48, 4, 1, 0, 1]} />
-                        <meshBasicMaterial color="#00aaff" side=${THREE.DoubleSide} transparent opacity=${0.6} />
+                    <mesh rotation=${{[0, 0, Math.PI]}}>
+                        <ringGeometry args=${{[0.45, 0.48, 4, 1, 0, 1]}} />
+                        <meshBasicMaterial color="#00aaff" side=${{THREE.DoubleSide}} transparent opacity=${{0.6}} />
                     </mesh>
                 </group>
-
-                <mesh position=${[0, 0.2, 0]}>
-                    <sphereGeometry args=${[0.08, 16, 16]} />
-                    <meshBasicMaterial color=${isHovered ? "#ffffff" : "#00aaff"} />
+                <mesh position=${{[0, 0.2, 0]}}>
+                    <sphereGeometry args=${{[0.08, 16, 16]}} />
+                    <meshBasicMaterial color=${{isHovered ? "#ffffff" : "#00aaff"}} />
                 </mesh>
-
-                <${Html} position=${[0, 0.6, 0]} center distanceFactor=${8} style=${{pointerEvents:'none'}}>
+                <${{Html}} position=${{[0, 0.6, 0]}} center distanceFactor=${{8}} style=${{{{pointerEvents:'none'}}}}>
                     <div className="flex flex-col items-center justify-center filter drop-shadow-[0_0_10px_rgba(0,255,242,0.5)]">
-
                         <div className="relative w-20 h-20 mb-2">
-                            <svg width="80" height="80" viewBox="0 0 80 80" style=${{transform: 'rotate(-90deg)'}}>
+                            <svg width="80" height="80" viewBox="0 0 80 80" style=${{{{transform: 'rotate(-90deg)'}}}}>
                                 <circle cx="40" cy="40" r="28" fill="none" stroke="rgba(0, 170, 255, 0.2)" strokeWidth="2" />
                                 <circle cx="40" cy="40" r="28" fill="none" 
-                                        stroke=${progressColor} strokeWidth="4" strokeLinecap="round"
-                                        strokeDasharray=${circumference} strokeDashoffset=${offset}
-                                        style=${{transition: 'stroke-dashoffset 0.1s linear'}} />
+                                        stroke=${{progressColor}} strokeWidth="4" strokeLinecap="round"
+                                        strokeDasharray=${{circumference}} strokeDashoffset=${{offset}}
+                                        style=${{{{transition: 'stroke-dashoffset 0.1s linear'}}}} />
                             </svg>
-
                             <div className="absolute inset-0 flex items-center justify-center">
-                                ${pinchProgress > 0 && html`
+                                ${{pinchProgress > 0 && html`
                                     <div className="text-center">
                                         <div className="text-[10px] font-mono text-cyan-200 tracking-tighter">LOAD</div>
-                                        <div className="text-xs font-bold text-white font-mono">${Math.round(pinchProgress * 100)}%</div>
+                                        <div className="text-xs font-bold text-white font-mono">${{Math.round(pinchProgress * 100)}}%</div>
                                     </div>
-                                `}
+                                `}}
                             </div>
                         </div>
-
-                        <div className=${"transition-all duration-300 " + (isHovered ? "opacity-100 translate-y-0" : "opacity-60 translate-y-1")}>
+                        <div className=${{"transition-all duration-300 " + (isHovered ? "opacity-100 translate-y-0" : "opacity-60 translate-y-1")}}>
                             <div className="bg-black/80 backdrop-blur border-x border-cyan-500/80 px-4 py-1 text-cyan-100 font-bold text-[10px] tracking-[0.2em]">
                                 UK HUB
                             </div>
@@ -255,56 +239,43 @@ html_content = """
                         </div>
                     </div>
                 <//>
-
-                <mesh visible=${false} name="UK_HITBOX">
-                    <sphereGeometry args=${[0.8, 16, 16]} />
+                <mesh visible=${{false}} name="UK_HITBOX">
+                    <sphereGeometry args=${{[0.8, 16, 16]}} />
                 </mesh>
             </group>
         `;
-    };
+    }};
 
     // --- 地球与粒子爆炸特效 ---
-    const RealEarth = ({ targetRotation, onHoverUK, pinchProgress, isExploding }) => {
+    const RealEarth = ({{ targetRotation, onHoverUK, pinchProgress, isExploding }}) => {{
         const earthRef = useRef();
         const particlesRef = useRef();
-
-        // 加载贴图
         const [colorMap, normalMap, specMap] = useLoader(THREE.TextureLoader, [
             'https://cdn.jsdelivr.net/gh/mrdoob/three.js@master/examples/textures/planets/earth_atmos_2048.jpg',
             'https://cdn.jsdelivr.net/gh/mrdoob/three.js@master/examples/textures/planets/earth_normal_2048.jpg',
             'https://cdn.jsdelivr.net/gh/mrdoob/three.js@master/examples/textures/planets/earth_specular_2048.jpg'
         ]);
 
-        useFrame((state, delta) => {
-            // 1. 正常状态：地球自转
-            if (earthRef.current && !isExploding) {
+        useFrame((state, delta) => {{
+            if (earthRef.current && !isExploding) {{
                 earthRef.current.rotation.y = THREE.MathUtils.lerp(earthRef.current.rotation.y, targetRotation.current.y, 0.08);
                 earthRef.current.rotation.x = THREE.MathUtils.lerp(earthRef.current.rotation.x, targetRotation.current.x, 0.08);
-
-                // 粒子层跟随地球旋转
-                if (particlesRef.current) {
+                if (particlesRef.current) {{
                     particlesRef.current.rotation.copy(earthRef.current.rotation);
                     particlesRef.current.visible = false; 
-                }
-            }
-
-            // 2. 爆炸状态：粒子爆发
-            if (isExploding && particlesRef.current) {
-                earthRef.current.visible = false; // 隐藏实体地球
-                particlesRef.current.visible = true; // 显示粒子
-
-                // 指数级扩散 (Explosion Effect)
-                const expansionFactor = 1.0 + (3.0 * delta); // 快速膨胀系数
+                }}
+            }}
+            if (isExploding && particlesRef.current) {{
+                earthRef.current.visible = false; 
+                particlesRef.current.visible = true; 
+                const expansionFactor = 1.0 + (3.0 * delta); 
                 particlesRef.current.scale.multiplyScalar(expansionFactor);
-
-                // 快速淡出
-                if (particlesRef.current.material.opacity > 0) {
+                if (particlesRef.current.material.opacity > 0) {{
                     particlesRef.current.material.opacity -= delta * 1.5; 
-                }
-            }
-        });
+                }}
+            }}
+        }});
 
-        // 计算 UK 坐标
         const r = 5;
         const phi = (90 - 53.0) * (Math.PI / 180);
         const theta = (-1.2 + 180) * (Math.PI / 180);
@@ -312,109 +283,82 @@ html_content = """
 
         return html`
             <group>
-                <group ref=${earthRef} rotation=${[0, -1.8, 0]}>
+                <group ref=${{earthRef}} rotation=${{[0, -1.8, 0]}}>
                     <mesh>
-                        <sphereGeometry args=${[5, 64, 64]} />
+                        <sphereGeometry args=${{[5, 64, 64]}} />
                         <meshStandardMaterial 
-                            map=${colorMap} 
-                            normalMap=${normalMap} 
-                            normalScale=${new THREE.Vector2(1.5, 1.5)}
-                            roughnessMap=${specMap}
-                            roughness=${0.6}
-                            metalness=${0.2}
-                            emissive="#001133" 
-                            emissiveIntensity=${0.6}
-                            color="#ffffff"
+                            map=${{colorMap}} 
+                            normalMap=${{normalMap}} 
+                            normalScale=${{new THREE.Vector2(1.5, 1.5)}}
+                            roughnessMap=${{specMap}} roughness=${{0.6}} metalness=${{0.2}}
+                            emissive="#001133" emissiveIntensity=${{0.6}} color="#ffffff"
                         />
                     </mesh>
-                    <group position=${ukPos}>
-                        <${UKMarker} isHovered=${onHoverUK} pinchProgress=${pinchProgress} />
+                    <group position=${{ukPos}}>
+                        <${{UKMarker}} isHovered=${{onHoverUK}} pinchProgress=${{pinchProgress}} />
                     </group>
                 </group>
-
-                <points ref=${particlesRef} rotation=${[0, -1.8, 0]} visible=${false}>
-                    <sphereGeometry args=${[5, 96, 96]} /> 
-                    <pointsMaterial 
-                        size=${0.12} 
-                        color="#00fff2" 
-                        transparent 
-                        opacity=${1} 
-                        sizeAttenuation=${true}
-                        blending=${THREE.AdditiveBlending}
-                    />
+                <points ref=${{particlesRef}} rotation=${{[0, -1.8, 0]}} visible=${{false}}>
+                    <sphereGeometry args=${{[5, 96, 96]}} /> 
+                    <pointsMaterial size=${{0.12}} color="#00fff2" transparent opacity=${{1}} sizeAttenuation=${{true}} blending=${{THREE.AdditiveBlending}} />
                 </points>
             </group>
         `;
-    };
+    }};
 
-    const MovingStars = () => {
+    const MovingStars = () => {{
         const starsRef = useRef();
-        useFrame((state, delta) => {
-            if (starsRef.current) {
-                starsRef.current.rotation.y += delta * 0.02;
-            }
-        });
-        return html`
-            <group ref=${starsRef}>
-                <${Stars} radius=${300} depth=${100} count=${20000} factor=${8} saturation=${0} fade speed=${1} />
-            </group>
-        `;
-    };
+        useFrame((state, delta) => {{
+            if (starsRef.current) starsRef.current.rotation.y += delta * 0.02;
+        }});
+        return html`<group ref=${{starsRef}}><${{Stars}} radius=${{300}} depth=${{100}} count=${{20000}} factor=${{8}} saturation=${{0}} fade speed=${{1}} /></group>`;
+    }};
 
-    // --- 核心手势逻辑 ---
-    const GestureManager = ({ targetRotation, targetZoom, isHoveringUK, setPinchProgress, setIsHoveringUK, setExploding }) => {
-        const { camera, scene } = useThree(); 
+    const GestureManager = ({{ targetRotation, targetZoom, isHoveringUK, setPinchProgress, setIsHoveringUK, setExploding }}) => {{
+        const {{ camera, scene }} = useThree(); 
         const raycaster = useMemo(() => new THREE.Raycaster(), []);
 
-        useEffect(() => {
+        useEffect(() => {{
             setTimeout(() => document.body.classList.add('intro-active'), 2500);
-
             let landmarker, video, cursor, running = true;
             let lastHandPos = null;
             let pinchStartTime = 0;
-            const REQUIRED_TIME = 5000; // 5秒
+            const REQUIRED_TIME = 5000; 
 
-            const init = async () => {
+            const init = async () => {{
                 video = document.getElementById('cam-video');
                 cursor = document.getElementById('hand-cursor');
                 const vision = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.8/wasm");
-                landmarker = await HandLandmarker.createFromOptions(vision, {
-                    baseOptions: { modelAssetPath: "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task", delegate: "GPU" },
+                landmarker = await HandLandmarker.createFromOptions(vision, {{
+                    baseOptions: {{ modelAssetPath: "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task", delegate: "GPU" }},
                     runningMode: "VIDEO", numHands: 1
-                });
-                const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
+                }});
+                const stream = await navigator.mediaDevices.getUserMedia({{ video: {{ width: 640, height: 480 }} }});
                 video.srcObject = stream;
                 video.addEventListener('loadeddata', loop);
-            };
+            }};
 
-            const loop = async () => {
+            const loop = async () => {{
                 if (!running) return;
-                if (landmarker && video.readyState >= 2) {
+                if (landmarker && video.readyState >= 2) {{
                     const results = await landmarker.detectForVideo(video, performance.now());
-
-                    if (results.landmarks && results.landmarks.length > 0) {
+                    if (results.landmarks && results.landmarks.length > 0) {{
                         const lm = results.landmarks[0];
                         const wrist = lm[0];
                         const index = lm[8]; const thumb = lm[4];
-
-                        // 计算指尖平均距离 (判断手掌张开/握拳)
                         const tips = [lm[4], lm[8], lm[12], lm[16], lm[20]];
                         let avgDist = 0;
-                        tips.forEach(t => {
-                            avgDist += Math.sqrt(Math.pow(t.x - wrist.x, 2) + Math.pow(t.y - wrist.y, 2));
-                        });
+                        tips.forEach(t => {{ avgDist += Math.sqrt(Math.pow(t.x - wrist.x, 2) + Math.pow(t.y - wrist.y, 2)); }});
                         avgDist /= 5;
 
-                        // 更新光标
                         const x = (1 - index.x) * window.innerWidth;
                         const y = index.y * window.innerHeight;
                         cursor.style.display = 'block';
                         cursor.style.left = x + 'px'; cursor.style.top = y + 'px';
 
-                        // Raycast 检测
                         const ndcX = ((1 - index.x) * 2) - 1;
                         const ndcY = -(index.y * 2) + 1;
-                        raycaster.setFromCamera({ x: ndcX, y: ndcY }, camera);
+                        raycaster.setFromCamera({{ x: ndcX, y: ndcY }}, camera);
                         const intersects = raycaster.intersectObjects(scene.children, true);
                         const hitUK = intersects.find(hit => hit.object.name === 'UK_HITBOX');
 
@@ -423,161 +367,105 @@ html_content = """
                         const pinchDist = Math.hypot(index.x - thumb.x, index.y - thumb.y);
                         const isPinching = pinchDist < 0.06;
 
-                        // --- 交互逻辑 ---
-
-                        if (hitUK && isPinching) {
-                            // 1. UK 激活模式
+                        if (hitUK && isPinching) {{
                             cursor.className = 'hover-uk';
                             if (pinchStartTime === 0) pinchStartTime = Date.now();
                             const elapsed = Date.now() - pinchStartTime;
                             const progress = Math.min(elapsed / REQUIRED_TIME, 1.0);
                             setPinchProgress(progress);
-
-                            if (progress >= 1.0) { 
+                            if (progress >= 1.0) {{ 
                                 running = false;
-                                setExploding(true); // 触发粒子爆炸
+                                setExploding(true);
                                 document.body.classList.add('access-active');
-                                setTimeout(() => { 
+                                setTimeout(() => {{ 
                                     document.body.classList.add('fading-out');
-                                    setTimeout(() => { window.location.href = TARGET_URL; }, 1500);
-                                }, 1800); 
-                            }
-                        } 
-                        else {
-                            // 2. 正常浏览模式
+                                    // 注意：在 Streamlit iframe 中，top.location.href 可能被阻止
+                                    // 建议改为显示一个全屏连接或提示
+                                    setTimeout(() => {{ window.top.location.href = "https://github.com/MingyuTang0728"; console.log("Jumping to target..."); }}, 1500);
+                                }}, 1800); 
+                            }}
+                        }} else {{
                             setPinchProgress(0); pinchStartTime = 0;
-
-                            // 速率优化：使用 0.08 的慢速系数
-                            // 距离限制：min 12 (防止太近), max 50 (防止太远)
-
-                            if (avgDist > 0.35) {
-                                // 手掌张开 -> 慢慢放大 (Zoom In, reduce Z)
+                            if (avgDist > 0.35) {{
                                 cursor.className = 'zoom-in';
                                 targetZoom.current = Math.max(targetZoom.current - 0.08, 12); 
                                 lastHandPos = null;
-                            } else if (avgDist < 0.15) {
-                                // 握拳 -> 慢慢缩小 (Zoom Out, increase Z)
+                            }} else if (avgDist < 0.15) {{
                                 cursor.className = 'zoom-out';
                                 targetZoom.current = Math.min(targetZoom.current + 0.08, 50);
                                 lastHandPos = null;
-                            } else if (isPinching) {
-                                // 单指捏合 -> 旋转
-                                cursor.className = ''; 
-                                cursor.style.borderColor = "#fff"; // Visual feedback
-                                if (lastHandPos) {
+                            }} else if (isPinching) {{
+                                cursor.className = ''; cursor.style.borderColor = "#fff"; 
+                                if (lastHandPos) {{
                                     const deltaX = x - lastHandPos.x;
                                     const deltaY = y - lastHandPos.y;
-                                    targetRotation.current.y += deltaX * 0.003; // Slower rotation
+                                    targetRotation.current.y += deltaX * 0.003; 
                                     targetRotation.current.x += deltaY * 0.003;
-                                }
-                                lastHandPos = { x, y };
-                            } else {
-                                cursor.className = '';
-                                lastHandPos = null;
-                            }
-                        }
-                    } else {
-                        cursor.style.display = 'none';
-                        setPinchProgress(0);
-                        lastHandPos = null;
-                    }
-                }
+                                }}
+                                lastHandPos = {{ x, y }};
+                            }} else {{
+                                cursor.className = ''; lastHandPos = null;
+                            }}
+                        }}
+                    }} else {{
+                        cursor.style.display = 'none'; setPinchProgress(0); lastHandPos = null;
+                    }}
+                }}
                 requestAnimationFrame(loop);
-            };
-            init(); return () => { running = false; };
-        }, []);
+            }};
+            init(); return () => {{ running = false; }};
+        }}, []);
         return null;
-    };
+    }};
 
-    const App = () => {
-        const targetRotation = useRef({ x: 0.2, y: -1.6 });
-        const targetZoom = useRef(25); // 初始距离稍远一点
+    const App = () => {{
+        const targetRotation = useRef({{ x: 0.2, y: -1.6 }});
+        const targetZoom = useRef(25); 
         const [isHoveringUK, setIsHoveringUK] = useState(false);
         const [isExploding, setExploding] = useState(false);
         const isHoveringUKRef = useRef(false); 
         const [pinchProgress, setPinchProgress] = useState(0);
 
-        const setHoverWrapper = (val) => {
+        const setHoverWrapper = (val) => {{
             isHoveringUKRef.current = val;
             setIsHoveringUK(val);
-        };
+        }};
 
-        const CameraRig = () => {
-            useFrame(({ camera }) => {
-                // 相机平滑跟随
+        const CameraRig = () => {{
+            useFrame(({{ camera }}) => {{
                 camera.position.z = THREE.MathUtils.lerp(camera.position.z, targetZoom.current, 0.04);
-            });
+            }});
             return null;
-        };
+        }};
 
         return html`
             <div className="w-full h-screen bg-black relative">
-                <${Canvas} gl=${{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping }} camera=${{ position: [0, 0, 25], fov: 45 }}>
-                    <${OrbitControls} enableRotate=${false} enableZoom=${false} enablePan=${false} />
-
-                    <ambientLight intensity=${0.8} color="#bbddff" />
-                    <directionalLight position=${[15, 10, 5]} intensity=${3.0} color="#ffffff" />
-                    <pointLight position=${[-20, 0, -20]} intensity=${2.0} color="#00aaff" />
-
-                    <${MovingStars} />
-
-                    <${Suspense} fallback=${null}>
-                        <${RealEarth} 
-                            targetRotation=${targetRotation} 
-                            onHoverUK=${isHoveringUK} 
-                            pinchProgress=${pinchProgress}
-                            isExploding=${isExploding}
-                        />
-                    </${Suspense}>
-
-                    <${CameraRig} />
-
-                    <${GestureManager} 
-                        targetRotation=${targetRotation} 
-                        targetZoom=${targetZoom} 
-                        isHoveringUK=${isHoveringUKRef} 
-                        setIsHoveringUK=${setHoverWrapper}
-                        setPinchProgress=${setPinchProgress}
-                        setExploding=${setExploding}
+                <${{Canvas}} gl=${{{{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping }}}} camera=${{{{ position: [0, 0, 25], fov: 45 }}}}>
+                    <${{OrbitControls}} enableRotate=${{false}} enableZoom=${{false}} enablePan=${{false}} />
+                    <ambientLight intensity=${{0.8}} color="#bbddff" />
+                    <directionalLight position=${{[15, 10, 5]}} intensity=${{3.0}} color="#ffffff" />
+                    <pointLight position=${{[-20, 0, -20]}} intensity=${{2.0}} color="#00aaff" />
+                    <${{MovingStars}} />
+                    <${{Suspense}} fallback=${{null}}>
+                        <${{RealEarth}} targetRotation=${{targetRotation}} onHoverUK=${{isHoveringUK}} pinchProgress=${{pinchProgress}} isExploding=${{isExploding}} />
+                    </${{Suspense}}>
+                    <${{CameraRig}} />
+                    <${{GestureManager}} 
+                        targetRotation=${{targetRotation}} targetZoom=${{targetZoom}} 
+                        isHoveringUK=${{isHoveringUKRef}} setIsHoveringUK=${{setHoverWrapper}}
+                        setPinchProgress=${{setPinchProgress}} setExploding=${{setExploding}}
                     />
-                </${Canvas}>
+                </${{Canvas}}>
             </div>
         `;
-    };
+    }};
 
-    createRoot(document.getElementById('root')).render(html`<${App} />`);
+    createRoot(document.getElementById('root')).render(html`<${{App}} />`);
 </script>
 </body>
 </html>
 """
 
-final_html_content = html_content.replace("__TARGET_FILE_PLACEHOLDER__", TARGET_FILE).replace(
-    "__LOGO_FILE_PLACEHOLDER__", LOGO_FILE)
-
-
-class QuietHandler(http.server.SimpleHTTPRequestHandler):
-    def log_message(self, format, *args): pass
-
-
-def run_server():
-    with open(INDEX_FILE, "w", encoding="utf-8") as f:
-        f.write(final_html_content)
-    if not os.path.exists(TARGET_FILE): print(f"⚠️ Warning: Target file '{TARGET_FILE}' not found.")
-    if not os.path.exists(LOGO_FILE): print(f"⚠️ Warning: Logo file '{LOGO_FILE}' not found.")
-
-    os.chdir(os.path.dirname(os.path.abspath(__file__)))
-    try:
-        socketserver.TCPServer.allow_reuse_address = True
-        httpd = socketserver.TCPServer(("", PORT), QuietHandler)
-        url = f"http://localhost:{PORT}/{INDEX_FILE}"
-        print(f"\n>>> SONAIR 启动: {url}")
-        webbrowser.open(url)
-        httpd.serve_forever()
-    except KeyboardInterrupt:
-        httpd.server_close()
-    except Exception as e:
-        print(e)
-
-
-if __name__ == "__main__":
-    run_server()
+# 在 Streamlit 中渲染 HTML
+# height 设置得很高以模拟全屏，scrolling=False 隐藏滚动条
+components.html(html_content, height=1000, scrolling=False)
