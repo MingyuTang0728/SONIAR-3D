@@ -1,0 +1,396 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SONAIR | Global Entry</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { margin: 0; background: #000; overflow: hidden; user-select: none; font-family: 'Segoe UI', monospace; }
+
+        /* --- 开场动画层 --- */
+        #intro-layer {
+            position: fixed; inset: 0; background: #000; z-index: 10000;
+            display: flex; align-items: center; justify-content: center;
+            transition: background 1.5s ease-out;
+            pointer-events: none; /* 动画结束后穿透 */
+        }
+        #intro-text {
+            font-size: 5rem; font-weight: 900; color: #fff; letter-spacing: 0.2em;
+            text-shadow: 0 0 30px #00fff2;
+            transition: all 1.5s cubic-bezier(0.16, 1, 0.3, 1);
+            white-space: nowrap;
+        }
+
+        /* 动画状态: 激活 */
+        body.intro-active #intro-layer { background: transparent; }
+        body.intro-active #intro-text {
+            font-size: 1.5rem; 
+            transform: translate(calc(-50vw + 140px), calc(-50vh + 40px)); /* 飞向左上角 */
+            text-shadow: 0 0 10px #00fff2;
+        }
+
+        /* 摄像头画中画 */
+        #cam-preview {
+            position: absolute; top: 20px; right: 20px; width: 240px; height: 180px;
+            border-radius: 8px; overflow: hidden; border: 1px solid #00fff2;
+            background: rgba(0,0,0,0.9); z-index: 50; opacity: 0; transition: opacity 1s;
+        }
+        body.intro-active #cam-preview { opacity: 0.8; }
+        #cam-video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+
+        /* 光标 */
+        #hand-cursor {
+            position: fixed; top: 0; left: 0; width: 20px; height: 20px;
+            border: 2px solid #00fff2; border-radius: 50%;
+            transform: translate(-50%, -50%); pointer-events: none; z-index: 9999;
+            box-shadow: 0 0 10px #00fff2; display: none;
+        }
+        #hand-cursor.pinching { background: #00fff2; width: 10px; height: 10px; }
+
+        /* 左下角说明 */
+        #instructions {
+            position: absolute; bottom: 30px; left: 30px; z-index: 50;
+            opacity: 0; transition: opacity 1s 1s; /* 延迟显示 */
+        }
+        body.intro-active #instructions { opacity: 1; }
+    </style>
+</head>
+<body>
+
+<div id="intro-layer">
+    <h1 id="intro-text">SONAIR UK</h1>
+</div>
+
+<div id="hand-cursor"></div>
+
+<div id="cam-preview">
+    <video id="cam-video" autoplay muted playsinline></video>
+    <div class="absolute bottom-0 w-full bg-cyan-900/50 text-[10px] text-center text-cyan-300 font-mono">VISION ACTIVE</div>
+</div>
+
+<div id="instructions" class="glass-panel px-6 py-4 rounded-xl border border-cyan-800 bg-black/60 backdrop-blur-md text-cyan-100 font-mono text-xs space-y-2 shadow-[0_0_30px_rgba(0,255,242,0.1)]">
+    <div class="flex items-center gap-3">
+        <span class="text-xl">✋</span> 
+        <span><strong class="text-cyan-400">OPEN PALM</strong><br/>MOVE TO ROTATE</span>
+    </div>
+    <div class="flex items-center gap-3">
+        <span class="text-xl">↔️</span> 
+        <span><strong class="text-cyan-400">HAND DISTANCE</strong><br/>CLOSE = ZOOM IN</span>
+    </div>
+    <div class="flex items-center gap-3">
+        <span class="text-xl">👌</span> 
+        <span><strong class="text-red-400">PINCH ON UK</strong><br/>HOLD 5s TO ENTER</span>
+    </div>
+</div>
+
+<div id="root"></div>
+
+<script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@18.2.0",
+    "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+    "three": "https://esm.sh/three@0.150.1",
+    "@react-three/fiber": "https://esm.sh/@react-three/fiber@8.13.0?deps=three@0.150.1,react@18.2.0",
+    "@react-three/drei": "https://esm.sh/@react-three/drei@9.70.0?deps=three@0.150.1,react@18.2.0,@react-three/fiber@8.13.0",
+    "htm": "https://esm.sh/htm@3.1.1",
+    "@mediapipe/tasks-vision": "https://esm.sh/@mediapipe/tasks-vision@0.10.8"
+  }
+}
+</script>
+
+<script type="module">
+    import React, { useState, useEffect, useRef, useMemo, Suspense } from 'react';
+    import { createRoot } from 'react-dom/client';
+    import htm from 'htm';
+    import * as THREE from 'three';
+    import { Canvas, useFrame, useLoader } from '@react-three/fiber';
+    import { Html, Stars, Float, Ring } from '@react-three/drei';
+    import { FilesetResolver, HandLandmarker } from '@mediapipe/tasks-vision';
+
+    const html = htm.bind(React.createElement);
+    const TARGET_URL = "./UoN Multimodal AI Platform.html";
+
+    // =========================================
+    // 1. 进阶版 UK 全息节点 (带进度条)
+    // =========================================
+    const UKNode = ({ onHover, pinchProgress }) => {
+        const outerRing = useRef();
+        const innerRing = useRef();
+
+        useFrame((state, delta) => {
+            if (outerRing.current) outerRing.current.rotation.z += delta * 0.5;
+            if (innerRing.current) innerRing.current.rotation.z -= delta * 1.0;
+        });
+
+        // 计算进度条的角度 (0 到 2*PI)
+        // pinchProgress 是 0.0 到 1.0
+        const progressAngle = pinchProgress * Math.PI * 2;
+
+        return html`
+            <group position=${[0, 0, 0]}>
+                <mesh 
+                    visible=${false}
+                    onPointerOver=${(e) => { e.stopPropagation(); onHover(true); }}
+                    onPointerOut=${(e) => { onHover(false); }}
+                >
+                    <sphereGeometry args=${[0.6, 16, 16]} />
+                </mesh>
+
+                <mesh>
+                    <sphereGeometry args=${[0.08, 16, 16]} />
+                    <meshBasicMaterial color="#ff3333" />
+                </mesh>
+
+                <${Html} position=${[0.5, 0.5, 0]}>
+                    <div class="pointer-events-none">
+                        <div class="bg-black/80 border-l-2 border-red-500 pl-2 pr-3 py-1 text-white font-mono text-xs whitespace-nowrap shadow-[0_0_20px_rgba(255,0,0,0.4)]">
+                            <div class="font-bold text-red-400">UK HUB</div>
+                            <div class="text-[9px] text-gray-400">PINCH & HOLD</div>
+                        </div>
+                    </div>
+                <//>
+
+                <group rotation=${[Math.PI/2, 0, 0]}>
+                    <mesh>
+                        <ringGeometry args=${[0.3, 0.32, 64]} />
+                        <meshBasicMaterial color="#333" side=${THREE.DoubleSide} />
+                    </mesh>
+                    ${pinchProgress > 0 && html`
+                    <mesh>
+                        <ringGeometry args=${[0.28, 0.34, 64, 1, 0, progressAngle]} />
+                        <meshBasicMaterial color="#00ff00" side=${THREE.DoubleSide} />
+                    </mesh>
+                    `}
+                </group>
+
+                <group rotation=${[Math.PI/2, 0, 0]}>
+                    <mesh ref=${outerRing}>
+                        <ringGeometry args=${[0.4, 0.41, 32, 1, 0, 4]} />
+                        <meshBasicMaterial color="#00fff2" transparent opacity=${0.3} side=${THREE.DoubleSide} />
+                    </mesh>
+                    <mesh ref=${innerRing}>
+                        <ringGeometry args=${[0.2, 0.21, 32, 1, 0, 2]} />
+                        <meshBasicMaterial color="#00fff2" transparent opacity=${0.5} side=${THREE.DoubleSide} />
+                    </mesh>
+                </group>
+
+                <mesh position=${[0, 1, 0]}>
+                    <cylinderGeometry args=${[0.01, 0.01, 2, 8]} />
+                    <meshBasicMaterial color="#ff3333" transparent opacity=${0.6} blending=${THREE.AdditiveBlending} />
+                </mesh>
+            </group>
+        `;
+    };
+
+    // =========================================
+    // 2. 地球 (高亮，无大气，Lerp平滑)
+    // =========================================
+    const RealEarth = ({ targetRotation, onHoverUK, pinchProgress }) => {
+        const earthRef = useRef();
+        const cloudsRef = useRef();
+
+        const [colorMap, normalMap, specMap, cloudMap] = useLoader(THREE.TextureLoader, [
+            'https://cdn.jsdelivr.net/gh/mrdoob/three.js@master/examples/textures/planets/earth_atmos_2048.jpg',
+            'https://cdn.jsdelivr.net/gh/mrdoob/three.js@master/examples/textures/planets/earth_normal_2048.jpg',
+            'https://cdn.jsdelivr.net/gh/mrdoob/three.js@master/examples/textures/planets/earth_specular_2048.jpg',
+            'https://cdn.jsdelivr.net/gh/mrdoob/three.js@master/examples/textures/planets/earth_clouds_1024.png'
+        ]);
+
+        useFrame((state, delta) => {
+            if (earthRef.current) {
+                // 丝滑旋转 Lerp
+                earthRef.current.rotation.y = THREE.MathUtils.lerp(earthRef.current.rotation.y, targetRotation.current.y, 0.08);
+                earthRef.current.rotation.x = THREE.MathUtils.lerp(earthRef.current.rotation.x, targetRotation.current.x, 0.08);
+            }
+            if (cloudsRef.current) cloudsRef.current.rotation.y += delta * 0.015;
+        });
+
+        // Nottingham 坐标
+        const r = 5;
+        const phi = (90 - 53.0) * (Math.PI / 180);
+        const theta = (-1.2 + 180) * (Math.PI / 180);
+        const ukPos = [-(r * Math.sin(phi) * Math.cos(theta)), r * Math.cos(phi), r * Math.sin(phi) * Math.sin(theta)];
+
+        return html`
+            <group ref=${earthRef} rotation=${[0, -1.8, 0]}>
+                <mesh>
+                    <sphereGeometry args=${[5, 64, 64]} />
+                    <meshPhongMaterial map=${colorMap} normalMap=${normalMap} normalScale=${new THREE.Vector2(3,3)} specularMap=${specMap} specular=${new THREE.Color(0x555555)} shininess=${25} />
+                </mesh>
+                <mesh ref=${cloudsRef}>
+                    <sphereGeometry args=${[5.03, 64, 64]} />
+                    <meshPhongMaterial map=${cloudMap} transparent opacity=${0.8} blending=${THREE.AdditiveBlending} side=${THREE.DoubleSide} depthWrite=${false} />
+                </mesh>
+
+                <group position=${ukPos}>
+                    <${UKNode} onHover=${onHoverUK} pinchProgress=${pinchProgress} />
+                </group>
+            </group>
+        `;
+    };
+
+    // =========================================
+    // 3. 逻辑控制器 (手势 & 动画)
+    // =========================================
+    const Controller = ({ targetRotation, targetZoom, isHoveringUK, setPinchProgress }) => {
+        useEffect(() => {
+            // 开场动画逻辑
+            setTimeout(() => {
+                document.body.classList.add('intro-active');
+            }, 3000); // 3秒后执行动画
+
+            let landmarker, video, cursor, running = true;
+            let lastHandPos = null;
+
+            // 进度逻辑
+            let pinchStartTime = 0;
+            const REQUIRED_TIME = 5000; // 5秒
+
+            const init = async () => {
+                video = document.getElementById('cam-video');
+                cursor = document.getElementById('hand-cursor');
+                const vision = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.8/wasm");
+                landmarker = await HandLandmarker.createFromOptions(vision, {
+                    baseOptions: { modelAssetPath: "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task", delegate: "GPU" },
+                    runningMode: "VIDEO", numHands: 1
+                });
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                video.srcObject = stream;
+                video.addEventListener('loadeddata', loop);
+            };
+
+            const loop = async () => {
+                if (!running) return;
+                if (landmarker && video.readyState >= 2) {
+                    const results = await landmarker.detectForVideo(video, performance.now());
+
+                    if (results.landmarks && results.landmarks.length > 0) {
+                        const lm = results.landmarks[0];
+                        const index = lm[8]; const thumb = lm[4]; const wrist = lm[0]; const middle = lm[12];
+
+                        // 1. 光标
+                        const x = (1 - index.x) * window.innerWidth;
+                        const y = index.y * window.innerHeight;
+                        cursor.style.display = 'block';
+                        cursor.style.left = x + 'px'; cursor.style.top = y + 'px';
+
+                        // 2. 放大/缩小 (根据手掌在画面中的大小)
+                        // 计算手腕到中指指尖的距离 (Hand Scale)
+                        // 距离越大(离摄像头越近) -> Zoom In (Distance 变小)
+                        const handSize = Math.hypot(wrist.x - middle.x, wrist.y - middle.y);
+                        // 映射: handSize 0.1(远) -> Zoom 30, 0.4(近) -> Zoom 8
+                        const targetZ = Math.max(8, Math.min(30, 35 - (handSize * 80)));
+                        targetZoom.current = targetZ;
+
+                        // 3. 捏合检测
+                        const pinchDist = Math.hypot(index.x - thumb.x, index.y - thumb.y);
+                        const isPinching = pinchDist < 0.06;
+
+                        if (isPinching) {
+                            cursor.classList.add('pinching');
+
+                            if (isHoveringUK.current) {
+                                // === 逻辑分支 A: 在 UK 上捏合 (充能进入) ===
+                                if (pinchStartTime === 0) pinchStartTime = Date.now();
+                                const elapsed = Date.now() - pinchStartTime;
+                                const progress = Math.min(elapsed / REQUIRED_TIME, 1.0);
+                                setPinchProgress(progress);
+
+                                if (progress >= 1.0) {
+                                    window.location.href = TARGET_URL;
+                                    running = false;
+                                }
+                            } else {
+                                // === 逻辑分支 B: 在空处捏合 (无效，防止误触) ===
+                                // 如果你想在空处捏合也可以旋转，就放开这里的逻辑
+                                // 但为了区分 "张手移动" 和 "捏手点击"，建议旋转只用张手
+                                pinchStartTime = 0;
+                                setPinchProgress(0);
+                            }
+                        } else {
+                            cursor.classList.remove('pinching');
+                            pinchStartTime = 0;
+                            setPinchProgress(0);
+
+                            // === 逻辑分支 C: 张开手掌 (移动旋转) ===
+                            // 使用手掌中心 palm(9) 或 index(8)
+                            if (lastHandPos) {
+                                const deltaX = x - lastHandPos.x;
+                                const deltaY = y - lastHandPos.y;
+                                targetRotation.current.y += deltaX * 0.003;
+                                targetRotation.current.x += deltaY * 0.003;
+                            }
+                            lastHandPos = { x, y };
+                        }
+
+                    } else {
+                        cursor.style.display = 'none';
+                        lastHandPos = null;
+                        setPinchProgress(0);
+                    }
+                }
+                requestAnimationFrame(loop);
+            };
+            init();
+            return () => { running = false; };
+        }, []);
+        return null;
+    };
+
+    // =========================================
+    // 4. 主程序
+    // =========================================
+    const App = () => {
+        const targetRotation = useRef({ x: 0, y: -1.8 });
+        const targetZoom = useRef(18); // 初始距离
+        const isHoveringUK = useRef(false);
+        const [pinchProgress, setPinchProgress] = useState(0);
+
+        // 相机平滑控制器
+        const CameraRig = () => {
+            useFrame(({ camera }) => {
+                // Lerp 缩放
+                camera.position.z = THREE.MathUtils.lerp(camera.position.z, targetZoom.current, 0.05);
+            });
+            return null;
+        };
+
+        return html`
+            <div className="w-full h-screen bg-black relative">
+                <${Canvas} gl=${{ antialias: true }} camera=${{ position: [0, 0, 18], fov: 45 }}>
+                    <${OrbitControls} enableRotate=${false} enableZoom=${false} enablePan=${false} />
+
+                    <ambientLight intensity=${0.6} />
+                    <pointLight position=${[50, 20, 50]} intensity=${3.0} color="#ffffff" />
+                    <pointLight position=${[-50, 0, -20]} intensity=${1.5} color="#0044ff" />
+
+                    <${Stars} radius=${100} depth=${50} count=${10000} factor=${6} fade />
+
+                    <${Suspense} fallback=${null}>
+                        <${RealEarth} 
+                            targetRotation=${targetRotation} 
+                            onHoverUK=${(v)=>isHoveringUK.current=v} 
+                            pinchProgress=${pinchProgress}
+                        />
+                    </${Suspense}>
+
+                    <${CameraRig} />
+                </${Canvas}>
+
+                <${Controller} 
+                    targetRotation=${targetRotation} 
+                    targetZoom=${targetZoom} 
+                    isHoveringUK=${isHoveringUK} 
+                    setPinchProgress=${setPinchProgress}
+                />
+            </div>
+        `;
+    };
+
+    createRoot(document.getElementById('root')).render(html`<${App} />`);
+</script>
+</body>
+</html>
