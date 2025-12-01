@@ -7,12 +7,12 @@ import base64
 st.set_page_config(layout="wide", page_title="SONAIR 3D Entry")
 
 # ==========================================
-# 核心修改：这里填入了你指定的 GitHub Pages 网址
+# 配置区域
+# ==========================================
 TARGET_URL = "https://mingyutang0728.github.io/OMAIB-UoN-UCL/"
 LOGO_FILE = "UoN-Nottingham-Blue.png"
-# ==========================================
 
-# 图片转 Base64 辅助函数
+# 图片转 Base64
 def get_image_base64(image_path):
     if os.path.exists(image_path):
         with open(image_path, "rb") as img_file:
@@ -22,116 +22,72 @@ def get_image_base64(image_path):
 logo_base64 = get_image_base64(LOGO_FILE)
 logo_src = f"data:image/png;base64,{logo_base64}" if logo_base64 else ""
 
-# 2. 完整的 HTML/JS 代码
+# ==========================================
+# 核心 HTML/JS 代码
+# ==========================================
 html_content = f"""
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SONAIR | Holographic Entry</title>
+    <title>SONAIR</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
     <style>
-        :root {{ --neon: #00fff2; --alert: #ff3333; --hud: #00aaff; --bg: #000205; }}
-        body {{ 
-            margin: 0; background: var(--bg); overflow: hidden; user-select: none; font-family: 'Orbitron', sans-serif;
-            opacity: 1; transition: opacity 1.5s cubic-bezier(0.25, 0.1, 0.25, 1);
-        }}
-        body.fading-out {{ opacity: 0; }}
+        :root {{ --neon: #00fff2; --alert: #ff3333; --bg: #000205; }}
+        body {{ margin: 0; background: var(--bg); overflow: hidden; user-select: none; font-family: 'Orbitron', sans-serif; }}
+        
+        /* Loading / Intro */
+        #intro-layer {{ position: fixed; inset: 0; background: #000; z-index: 10000; display: flex; align-items: center; justify-content: center; pointer-events: none; transition: opacity 1s; }}
+        #intro-text {{ font-size: 4rem; font-weight: 900; color: #fff; text-shadow: 0 0 50px var(--neon); }}
+        body.loaded #intro-layer {{ opacity: 0; }}
 
-        /* 欢迎动画 */
-        #intro-layer {{
-            position: fixed; inset: 0; background: #000; z-index: 10000;
-            display: flex; align-items: center; justify-content: center;
-            transition: all 1.5s cubic-bezier(0.16, 1, 0.3, 1); pointer-events: none;
-        }}
-        #intro-text {{
-            font-size: 6rem; font-weight: 900; color: #fff; letter-spacing: 0.2em;
-            text-shadow: 0 0 50px var(--neon); transition: all 1.5s; white-space: nowrap;
-        }}
-        body.intro-active #intro-layer {{ background: transparent; }}
-        body.intro-active #intro-text {{
-            font-size: 1.5rem; transform: translate(calc(-50vw + 160px), calc(-50vh + 50px)); 
-            text-shadow: 0 0 10px var(--neon); letter-spacing: 0.1em;
-        }}
-
-        /* 摄像头框 */
+        /* HUD & Camera */
         #cam-preview {{
-            position: absolute; top: 20px; right: 20px; width: 400px; height: 300px;
-            border-radius: 4px; overflow: hidden; border: 1px solid var(--neon);
-            background: rgba(0,0,0,0.9); z-index: 50; opacity: 0; transition: opacity 1s 2s;
-            box-shadow: 0 0 20px rgba(0, 255, 242, 0.1);
+            position: absolute; top: 20px; right: 20px; width: 320px; height: 240px;
+            border: 1px solid var(--neon); background: rgba(0,0,0,0.8); z-index: 50;
+            border-radius: 8px; overflow: hidden;
         }}
-        body.intro-active #cam-preview {{ opacity: 1; }}
         #cam-video {{ width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }}
+        #uon-logo {{ position: absolute; top: 10px; left: 10px; height: 30px; z-index: 60; filter: drop-shadow(0 0 5px var(--neon)); }}
 
-        /* Logo */
-        #uon-holo-logo {{ position: absolute; top: 10px; left: 10px; z-index: 60; opacity: 0; transition: opacity 1s 2s; }}
-        body.intro-active #uon-holo-logo {{ opacity: 1; }}
-        #uon-img {{ height: 35px; width: auto; filter: drop-shadow(0 0 5px rgba(0, 255, 242, 0.5)); }}
-
-        /* 手势光标 */
+        /* Hand Cursor */
         #hand-cursor {{
-            position: fixed; top: 0; left: 0; width: 30px; height: 30px;
-            border: 1px solid rgba(0, 255, 242, 0.5); border-radius: 50%;
-            transform: translate(-50%, -50%); pointer-events: none; z-index: 9999;
-            box-shadow: 0 0 10px var(--neon); display: none;
-            transition: width 0.2s, height 0.2s, border-color 0.2s;
+            position: fixed; top: 0; left: 0; width: 20px; height: 20px;
+            border: 2px solid var(--neon); border-radius: 50%;
+            transform: translate(-50%, -50%); pointer-events: none; z-index: 9999; display: none;
+            box-shadow: 0 0 10px var(--neon);
         }}
-        #hand-cursor.zoom-in {{ border: 2px solid var(--neon); width: 60px; height: 60px; background: rgba(0, 255, 242, 0.1); box-shadow: 0 0 30px var(--neon); }}
-        #hand-cursor.zoom-out {{ border: 2px solid var(--alert); width: 10px; height: 10px; background: rgba(255, 50, 50, 0.5); box-shadow: 0 0 30px var(--alert); }}
-        #hand-cursor.hover-uk {{ border-color: #ffffff; box-shadow: 0 0 20px #ffffff; width: 40px; height: 40px; }}
+        #hand-cursor.zoom-in {{ width: 50px; height: 50px; background: rgba(0, 255, 242, 0.2); }}
+        #hand-cursor.zoom-out {{ width: 10px; height: 10px; border-color: var(--alert); background: rgba(255, 50, 50, 0.5); }}
 
-        /* 指引卡片 */
-        #instructions {{
-            position: absolute; bottom: 40px; left: 40px; z-index: 50;
-            opacity: 0; transition: opacity 1s 2.5s;
+        /* Jumping Text */
+        #jump-overlay {{
+            position: fixed; inset: 0; background: black; z-index: 10002; display: flex; align-items: center; justify-content: center;
+            opacity: 0; pointer-events: none; transition: opacity 1s;
         }}
-        body.intro-active #instructions {{ opacity: 1; }}
-        .glass-card {{
-            background: rgba(0, 10, 20, 0.7); backdrop-filter: blur(10px);
-            border: 1px solid rgba(0, 255, 242, 0.2); box-shadow: 0 0 30px rgba(0,0,0,0.5);
-        }}
-
-        /* 跳转文字 */
-        #access-granted {{
-            position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
-            color: #fff; font-size: 4rem; font-weight: 900; 
-            text-shadow: 0 0 50px var(--neon), 0 0 20px var(--neon);
-            opacity: 0; pointer-events: none; z-index: 10001; letter-spacing: 0.3em;
-            transition: opacity 0.2s;
-        }}
-        body.access-active #access-granted {{ opacity: 1; }}
+        #jump-overlay.active {{ opacity: 1; pointer-events: auto; }}
+        .jump-text {{ color: var(--neon); font-size: 3rem; font-weight: bold; letter-spacing: 0.2em; animation: pulse 1s infinite; }}
+        @keyframes pulse {{ 0% {{ opacity: 0.5; }} 100% {{ opacity: 1; }} }}
     </style>
 </head>
 <body>
 
-<div id="intro-layer"><h1 id="intro-text">SONAIR UK</h1></div>
-<div id="access-granted">INITIALIZING...</div>
+<div id="intro-layer"><h1 id="intro-text">INITIALIZING...</h1></div>
+<div id="jump-overlay"><div class="jump-text">WARPING TO UK...</div></div>
 <div id="hand-cursor"></div>
 
 <div id="cam-preview">
     <video id="cam-video" autoplay muted playsinline></video>
-    <div id="uon-holo-logo"><img id="uon-img" src="{logo_src}" alt="UoN Logo"></div>
-    <div class="absolute bottom-0 w-full bg-cyan-900/80 text-[10px] text-center text-cyan-300 font-mono py-1 tracking-widest">
-        UoN X UTC
-    </div>
+    <img id="uon-logo" src="{logo_src}">
+    <div class="absolute bottom-0 w-full bg-cyan-900/80 text-[10px] text-center text-cyan-300 font-mono py-1">System Active</div>
 </div>
 
-<div id="instructions" class="glass-card px-6 py-5 rounded-tr-2xl border-l-4 border-cyan-400 text-cyan-100 space-y-4">
-    <div class="flex items-center gap-4">
-        <div class="text-2xl text-cyan-400 w-8 text-center">✋</div>
-        <div><div class="font-bold text-cyan-400 text-sm tracking-wider">PALM OPEN</div><div class="text-[10px] text-gray-400 font-sans">Zoom In (Enlarge)</div></div>
-    </div>
-    <div class="flex items-center gap-4">
-        <div class="text-2xl text-pink-400 w-8 text-center">✊</div>
-        <div><div class="font-bold text-pink-400 text-sm tracking-wider">FIST PINCH</div><div class="text-[10px] text-gray-400 font-sans">Zoom Out (Shrink)</div></div>
-    </div>
-    <div class="flex items-center gap-4">
-        <div class="text-2xl text-white w-8 text-center">👌</div>
-        <div><div class="font-bold text-white text-sm tracking-wider">TARGET UK</div><div class="text-[10px] text-gray-400 font-sans">Hold 5s to Warp</div></div>
-    </div>
+<div id="instructions" class="fixed bottom-10 left-10 p-5 rounded-xl border-l-4 border-cyan-400 bg-gray-900/80 text-cyan-100 space-y-3 backdrop-blur-md z-50">
+    <div class="flex items-center gap-3"><div class="text-xl">✋</div><div><span class="font-bold text-cyan-400">OPEN PALM</span><br><span class="text-xs text-gray-400">Zoom In</span></div></div>
+    <div class="flex items-center gap-3"><div class="text-xl">✊</div><div><span class="font-bold text-pink-500">FIST</span><br><span class="text-xs text-gray-400">Zoom Out</span></div></div>
+    <div class="flex items-center gap-3"><div class="text-xl">👌</div><div><span class="font-bold text-white">PINCH UK</span><br><span class="text-xs text-gray-400">Jump</span></div></div>
 </div>
 
 <div id="root"></div>
@@ -160,117 +116,80 @@ html_content = f"""
     import {{ FilesetResolver, HandLandmarker }} from '@mediapipe/tasks-vision';
 
     const html = htm.bind(React.createElement);
-    
-    // JS 变量接收 Python 传来的 URL
     const TARGET_URL = "{TARGET_URL}";
 
-    // --- UK 光标组件 ---
+    // --- Components ---
+
     const UKMarker = ({{ isHovered, pinchProgress }}) => {{
-        const bracketRef = useRef();
-        const innerRingRef = useRef();
-
-        useFrame((state, delta) => {{
-            if (bracketRef.current) bracketRef.current.rotation.z += delta * 0.5;
-            if (innerRingRef.current) innerRingRef.current.rotation.z -= delta * 1.0;
-        }});
-
-        const radius = 28;
-        const circumference = 2 * Math.PI * radius;
-        const offset = circumference - (pinchProgress * circumference);
-        const progressColor = pinchProgress > 0.8 ? "#ff0055" : "#00fff2";
-
+        const ref = useRef();
+        useFrame((state, delta) => {{ if(ref.current) ref.current.rotation.z -= delta; }});
+        
+        const color = pinchProgress > 0 ? "#ff0055" : "#00fff2";
+        
         return html`
             <group position=${{[0, 0, 0]}}>
-                <group rotation=${{[Math.PI/2, 0, 0]}} ref=${{bracketRef}}>
-                    <mesh><ringGeometry args=${{[0.45, 0.48, 4, 1, 0, 1]}} /><meshBasicMaterial color="#00aaff" side=${{THREE.DoubleSide}} transparent opacity=${{0.6}} /></mesh>
-                    <mesh rotation=${{[0, 0, Math.PI]}}><ringGeometry args=${{[0.45, 0.48, 4, 1, 0, 1]}} /><meshBasicMaterial color="#00aaff" side=${{THREE.DoubleSide}} transparent opacity=${{0.6}} /></mesh>
-                </group>
-                <mesh position=${{[0, 0.2, 0]}}><sphereGeometry args=${{[0.08, 16, 16]}} /><meshBasicMaterial color=${{isHovered ? "#ffffff" : "#00aaff"}} /></mesh>
-                <${{Html}} position=${{[0, 0.6, 0]}} center distanceFactor=${{8}} style=${{{{pointerEvents:'none'}}}}>
-                    <div className="flex flex-col items-center justify-center filter drop-shadow-[0_0_10px_rgba(0,255,242,0.5)]">
-                        <div className="relative w-20 h-20 mb-2">
-                            <svg width="80" height="80" viewBox="0 0 80 80" style=${{{{transform: 'rotate(-90deg)'}}}}>
-                                <circle cx="40" cy="40" r="28" fill="none" stroke="rgba(0, 170, 255, 0.2)" strokeWidth="2" />
-                                <circle cx="40" cy="40" r="28" fill="none" 
-                                        stroke=${{progressColor}} strokeWidth="4" strokeLinecap="round"
-                                        strokeDasharray=${{circumference}} strokeDashoffset=${{offset}}
-                                        style=${{{{transition: 'stroke-dashoffset 0.1s linear'}}}} />
-                            </svg>
-                            <div className="absolute inset-0 flex items-center justify-center">
-                                ${{pinchProgress > 0 && html`<div className="text-center"><div className="text-[10px] font-mono text-cyan-200 tracking-tighter">LOAD</div><div className="text-xs font-bold text-white font-mono">${{Math.round(pinchProgress * 100)}}%</div></div>`}}
-                            </div>
-                        </div>
-                        <div className=${{"transition-all duration-300 " + (isHovered ? "opacity-100 translate-y-0" : "opacity-60 translate-y-1")}}>
-                            <div className="bg-black/80 backdrop-blur border-x border-cyan-500/80 px-4 py-1 text-cyan-100 font-bold text-[10px] tracking-[0.2em]">UK HUB</div>
-                            <div className="h-[1px] w-full bg-cyan-500 mt-0.5 shadow-[0_0_8px_cyan]"></div>
-                        </div>
+                <mesh ref=${{ref}}>
+                    <ringGeometry args=${{[0.5, 0.55, 32]}} />
+                    <meshBasicMaterial color=${{color}} side=${{THREE.DoubleSide}} />
+                </mesh>
+                <${{Html}} position=${{[0, 0.8, 0]}} center style=${{{{pointerEvents:'none'}}}}>
+                    <div class="text-white text-xs font-bold bg-black/50 px-2 rounded border border-cyan-500">
+                        ${{pinchProgress > 0 ? Math.round(pinchProgress * 100) + '%' : 'UK HUB'}}
                     </div>
                 <//>
-                <mesh visible=${{false}} name="UK_HITBOX"><sphereGeometry args=${{[0.8, 16, 16]}} /></mesh>
+                <mesh name="UK_HITBOX" visible=${{false}}><sphereGeometry args=${{[0.8, 16, 16]}} /></mesh>
             </group>
         `;
     }};
 
-    // --- 地球组件 ---
-    const RealEarth = ({{ targetRotation, onHoverUK, pinchProgress, isExploding }}) => {{
+    const Earth = ({{ targetRotation, onHoverUK, pinchProgress, isExploding }}) => {{
         const earthRef = useRef();
-        const particlesRef = useRef();
-        const [colorMap, normalMap, specMap] = useLoader(THREE.TextureLoader, [
+        const [colorMap, normalMap] = useLoader(THREE.TextureLoader, [
             'https://cdn.jsdelivr.net/gh/mrdoob/three.js@master/examples/textures/planets/earth_atmos_2048.jpg',
-            'https://cdn.jsdelivr.net/gh/mrdoob/three.js@master/examples/textures/planets/earth_normal_2048.jpg',
-            'https://cdn.jsdelivr.net/gh/mrdoob/three.js@master/examples/textures/planets/earth_specular_2048.jpg'
+            'https://cdn.jsdelivr.net/gh/mrdoob/three.js@master/examples/textures/planets/earth_normal_2048.jpg'
         ]);
 
-        useFrame((state, delta) => {{
+        useFrame(() => {{
             if (earthRef.current && !isExploding) {{
-                earthRef.current.rotation.y = THREE.MathUtils.lerp(earthRef.current.rotation.y, targetRotation.current.y, 0.08);
-                earthRef.current.rotation.x = THREE.MathUtils.lerp(earthRef.current.rotation.x, targetRotation.current.x, 0.08);
-                if (particlesRef.current) {{ particlesRef.current.rotation.copy(earthRef.current.rotation); particlesRef.current.visible = false; }}
+                earthRef.current.rotation.y = THREE.MathUtils.lerp(earthRef.current.rotation.y, targetRotation.current.y, 0.1);
+                earthRef.current.rotation.x = THREE.MathUtils.lerp(earthRef.current.rotation.x, targetRotation.current.x, 0.1);
             }}
-            if (isExploding && particlesRef.current) {{
-                earthRef.current.visible = false; particlesRef.current.visible = true; 
-                const expansionFactor = 1.0 + (3.0 * delta); particlesRef.current.scale.multiplyScalar(expansionFactor);
-                if (particlesRef.current.material.opacity > 0) particlesRef.current.material.opacity -= delta * 1.5; 
+            if (isExploding && earthRef.current) {{
+                earthRef.current.scale.multiplyScalar(1.1);
+                earthRef.current.material.opacity -= 0.05;
+                earthRef.current.material.transparent = true;
             }}
         }});
 
-        const r = 5;
-        const phi = (90 - 53.0) * (Math.PI / 180);
+        // UK Coordinates
+        const r = 5; 
+        const phi = (90 - 53.0) * (Math.PI / 180); 
         const theta = (-1.2 + 180) * (Math.PI / 180);
         const ukPos = [-(r * Math.sin(phi) * Math.cos(theta)), r * Math.cos(phi), r * Math.sin(phi) * Math.sin(theta)];
 
         return html`
-            <group>
-                <group ref=${{earthRef}} rotation=${{[0, -1.8, 0]}}>
-                    <mesh>
-                        <sphereGeometry args=${{[5, 64, 64]}} />
-                        <meshStandardMaterial map=${{colorMap}} normalMap=${{normalMap}} normalScale=${{new THREE.Vector2(1.5, 1.5)}} roughnessMap=${{specMap}} roughness=${{0.6}} metalness=${{0.2}} emissive="#001133" emissiveIntensity=${{0.6}} color="#ffffff"/>
-                    </mesh>
-                    <group position=${{ukPos}}><${{UKMarker}} isHovered=${{onHoverUK}} pinchProgress=${{pinchProgress}} /></group>
+            <mesh ref=${{earthRef}} rotation=${{[0, -1.8, 0]}}>
+                <sphereGeometry args=${{[5, 64, 64]}} />
+                <meshStandardMaterial map=${{colorMap}} normalMap=${{normalMap}} metalness=${{0.2}} roughness=${{0.7}} />
+                <group position=${{ukPos}}>
+                    <${{UKMarker}} isHovered=${{onHoverUK}} pinchProgress=${{pinchProgress}} />
                 </group>
-                <points ref=${{particlesRef}} rotation=${{[0, -1.8, 0]}} visible=${{false}}>
-                    <sphereGeometry args=${{[5, 96, 96]}} /> 
-                    <pointsMaterial size=${{0.12}} color="#00fff2" transparent opacity=${{1}} sizeAttenuation=${{true}} blending=${{THREE.AdditiveBlending}} />
-                </points>
-            </group>
+            </mesh>
         `;
     }};
 
-    // --- 手势管理 (包含放大缩小逻辑) ---
-    const GestureManager = ({{ targetRotation, targetZoom, isHoveringUK, setPinchProgress, setIsHoveringUK, setExploding }}) => {{
-        const {{ camera, scene }} = useThree(); 
+    const GestureController = ({{ targetRotation, targetZoom, isHoveringUK, setPinchProgress, setExploding }}) => {{
+        const {{ camera, scene }} = useThree();
         const raycaster = useMemo(() => new THREE.Raycaster(), []);
 
         useEffect(() => {{
-            setTimeout(() => document.body.classList.add('intro-active'), 2500);
-            let landmarker, video, cursor, running = true;
-            let lastHandPos = null;
-            let pinchStartTime = 0;
-            const REQUIRED_TIME = 5000; 
+            const video = document.getElementById('cam-video');
+            const cursor = document.getElementById('hand-cursor');
+            let landmarker;
+            let running = true;
+            let pinchStart = 0;
 
-            const init = async () => {{
-                video = document.getElementById('cam-video');
-                cursor = document.getElementById('hand-cursor');
+            const setup = async () => {{
                 const vision = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.8/wasm");
                 landmarker = await HandLandmarker.createFromOptions(vision, {{
                     baseOptions: {{ modelAssetPath: "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task", delegate: "GPU" }},
@@ -278,116 +197,135 @@ html_content = f"""
                 }});
                 const stream = await navigator.mediaDevices.getUserMedia({{ video: {{ width: 640, height: 480 }} }});
                 video.srcObject = stream;
-                video.addEventListener('loadeddata', loop);
+                video.onloadeddata = () => {{
+                    document.body.classList.add('loaded');
+                    predict();
+                }};
             }};
 
-            const loop = async () => {{
+            const predict = async () => {{
                 if (!running) return;
                 if (landmarker && video.readyState >= 2) {{
                     const results = await landmarker.detectForVideo(video, performance.now());
+                    
                     if (results.landmarks && results.landmarks.length > 0) {{
-                        const lm = results.landmarks[0]; const wrist = lm[0]; const index = lm[8]; const thumb = lm[4];
-                        const tips = [lm[4], lm[8], lm[12], lm[16], lm[20]];
-                        let avgDist = 0;
-                        tips.forEach(t => {{ avgDist += Math.sqrt(Math.pow(t.x - wrist.x, 2) + Math.pow(t.y - wrist.y, 2)); }});
-                        avgDist /= 5;
-
+                        const lm = results.landmarks[0];
+                        const index = lm[8]; const thumb = lm[4]; const wrist = lm[0];
+                        
+                        // Cursor Logic
                         const x = (1 - index.x) * window.innerWidth;
                         const y = index.y * window.innerHeight;
-                        cursor.style.display = 'block'; cursor.style.left = x + 'px'; cursor.style.top = y + 'px';
+                        cursor.style.display = 'block';
+                        cursor.style.left = x + 'px'; cursor.style.top = y + 'px';
 
-                        const ndcX = ((1 - index.x) * 2) - 1; const ndcY = -(index.y * 2) + 1;
+                        // Raycasting for UK Hit
+                        const ndcX = ((1 - index.x) * 2) - 1;
+                        const ndcY = -(index.y * 2) + 1;
                         raycaster.setFromCamera({{ x: ndcX, y: ndcY }}, camera);
-                        const intersects = raycaster.intersectObjects(scene.children, true);
-                        const hitUK = intersects.find(hit => hit.object.name === 'UK_HITBOX');
+                        const hits = raycaster.intersectObjects(scene.children, true);
+                        const hitUK = hits.find(h => h.object.name === 'UK_HITBOX');
+                        
+                        // State Update
+                        if (!!hitUK !== isHoveringUK.current) isHoveringUK.current = !!hitUK;
 
-                        if (!!hitUK !== isHoveringUK.current) setIsHoveringUK(!!hitUK);
+                        // Gesture Calculations
                         const pinchDist = Math.hypot(index.x - thumb.x, index.y - thumb.y);
-                        const isPinching = pinchDist < 0.06;
+                        const isPinching = pinchDist < 0.08; // Threshold for pinch
+
+                        // Calculate "Spread" (Avg distance of fingertips to wrist)
+                        const tips = [lm[4], lm[8], lm[12], lm[16], lm[20]];
+                        let spread = tips.reduce((acc, t) => acc + Math.hypot(t.x - wrist.x, t.y - wrist.y), 0) / 5;
+
+                        // --- INTERACTION LOGIC ---
 
                         if (hitUK && isPinching) {{
-                            cursor.className = 'hover-uk';
-                            if (pinchStartTime === 0) pinchStartTime = Date.now();
-                            const elapsed = Date.now() - pinchStartTime;
-                            const progress = Math.min(elapsed / REQUIRED_TIME, 1.0);
+                            // Trigger Jump Logic
+                            cursor.className = 'zoom-in'; // Visual feedback
+                            if (pinchStart === 0) pinchStart = Date.now();
+                            const progress = Math.min((Date.now() - pinchStart) / 2000, 1); // 2 seconds to hold
                             setPinchProgress(progress);
-                            if (progress >= 1.0) {{ 
+
+                            if (progress >= 1) {{
                                 running = false;
                                 setExploding(true);
-                                document.body.classList.add('access-active');
-                                setTimeout(() => {{ 
-                                    document.body.classList.add('fading-out');
-                                    // *** 这里是跳转逻辑，使用 window.top 确保跳出框架 ***
-                                    setTimeout(() => {{ window.top.location.href = TARGET_URL; }}, 1500);
-                                }}, 1800); 
+                                document.getElementById('jump-overlay').classList.add('active');
+                                setTimeout(() => {{
+                                    // *** CRITICAL FIX: Open in new tab to bypass Sandbox ***
+                                    window.open(TARGET_URL, '_blank'); 
+                                }}, 1500);
                             }}
                         }} else {{
-                            setPinchProgress(0); pinchStartTime = 0;
-                            // --- 恢复的放大缩小逻辑 ---
-                            if (avgDist > 0.35) {{
+                            setPinchProgress(0); pinchStart = 0;
+                            
+                            // Zoom Logic (Adjusted Thresholds)
+                            // Spread > 0.4 = Open Hand (Zoom In)
+                            // Spread < 0.25 = Fist (Zoom Out) - Made easier
+                            if (spread > 0.35) {{
                                 cursor.className = 'zoom-in';
-                                targetZoom.current = Math.max(targetZoom.current - 0.08, 12); 
-                                lastHandPos = null;
-                            }} else if (avgDist < 0.15) {{
+                                targetZoom.current = Math.max(targetZoom.current - 0.2, 12);
+                            }} else if (spread < 0.25) {{ 
                                 cursor.className = 'zoom-out';
-                                targetZoom.current = Math.min(targetZoom.current + 0.08, 50);
-                                lastHandPos = null;
+                                targetZoom.current = Math.min(targetZoom.current + 0.2, 40);
                             }} else if (isPinching) {{
-                                cursor.className = ''; cursor.style.borderColor = "#fff"; 
-                                if (lastHandPos) {{
-                                    const deltaX = x - lastHandPos.x; const deltaY = y - lastHandPos.y;
-                                    targetRotation.current.y += deltaX * 0.003; targetRotation.current.x += deltaY * 0.003;
-                                }}
-                                lastHandPos = {{ x, y }};
+                                // Rotate Logic
+                                cursor.className = '';
+                                targetRotation.current.y += (x - (cursor.lx || x)) * 0.005;
+                                targetRotation.current.x += (y - (cursor.ly || y)) * 0.005;
                             }} else {{
-                                cursor.className = ''; lastHandPos = null;
+                                cursor.className = '';
                             }}
+                            cursor.lx = x; cursor.ly = y;
                         }}
                     }} else {{
-                        cursor.style.display = 'none'; setPinchProgress(0); lastHandPos = null;
+                        cursor.style.display = 'none';
                     }}
                 }}
-                requestAnimationFrame(loop);
+                requestAnimationFrame(predict);
             }};
-            init(); return () => {{ running = false; }};
+
+            setup();
+            return () => {{ running = false; }};
         }}, []);
         return null;
     }};
 
     const App = () => {{
         const targetRotation = useRef({{ x: 0.2, y: -1.6 }});
-        const targetZoom = useRef(25); 
-        const [isHoveringUK, setIsHoveringUK] = useState(false);
-        const [isExploding, setExploding] = useState(false);
-        const isHoveringUKRef = useRef(false); 
+        const targetZoom = useRef(25);
+        const isHoveringUK = useRef(false);
         const [pinchProgress, setPinchProgress] = useState(0);
-
-        const setHoverWrapper = (val) => {{ isHoveringUKRef.current = val; setIsHoveringUK(val); }};
+        const [isExploding, setExploding] = useState(false);
 
         const CameraRig = () => {{
             useFrame(({{ camera }}) => {{
-                camera.position.z = THREE.MathUtils.lerp(camera.position.z, targetZoom.current, 0.04);
+                camera.position.z = THREE.MathUtils.lerp(camera.position.z, targetZoom.current, 0.05);
             }});
             return null;
         }};
 
         return html`
-            <div className="w-full h-screen bg-black relative">
-                <${{Canvas}} gl=${{{{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping }}}} camera=${{{{ position: [0, 0, 25], fov: 45 }}}}>
-                    <${{OrbitControls}} enableRotate=${{false}} enableZoom=${{false}} enablePan=${{false}} />
-                    <ambientLight intensity=${{0.8}} color="#bbddff" />
-                    <directionalLight position=${{[15, 10, 5]}} intensity=${{3.0}} color="#ffffff" />
-                    <pointLight position=${{[-20, 0, -20]}} intensity=${{2.0}} color="#00aaff" />
-                    <${{Stars}} radius=${{300}} depth=${{100}} count=${{20000}} factor=${{8}} saturation=${{0}} fade speed=${{1}} />
+            <div style=${{width:'100vw', height:'100vh', background:'black'}}>
+                <${{Canvas}} camera=${{position: [0, 0, 25], fov: 45}}>
+                    <ambientLight intensity=${{0.5}} />
+                    <pointLight position=${{[-10, 10, 10]}} intensity=${{2}} />
+                    <${{Stars}} />
                     <${{Suspense}} fallback=${{null}}>
-                        <${{RealEarth}} targetRotation=${{targetRotation}} onHoverUK=${{isHoveringUK}} pinchProgress=${{pinchProgress}} isExploding=${{isExploding}} />
+                        <${{Earth}} 
+                            targetRotation=${{targetRotation}} 
+                            onHoverUK=${{isHoveringUK}} 
+                            pinchProgress=${{pinchProgress}} 
+                            isExploding=${{isExploding}}
+                        />
                     </${{Suspense}}>
                     <${{CameraRig}} />
-                    <${{GestureManager}} 
-                        targetRotation=${{targetRotation}} targetZoom=${{targetZoom}} 
-                        isHoveringUK=${{isHoveringUKRef}} setIsHoveringUK=${{setHoverWrapper}}
-                        setPinchProgress=${{setPinchProgress}} setExploding=${{setExploding}}
+                    <${{GestureController}} 
+                        targetRotation=${{targetRotation}} 
+                        targetZoom=${{targetZoom}} 
+                        isHoveringUK=${{isHoveringUK}} 
+                        setPinchProgress=${{setPinchProgress}}
+                        setExploding=${{setExploding}}
                     />
+                    <${{OrbitControls}} enableZoom=${{false}} enableRotate=${{false}} />
                 </${{Canvas}}>
             </div>
         `;
@@ -399,5 +337,4 @@ html_content = f"""
 </html>
 """
 
-# 渲染 HTML
 components.html(html_content, height=1000, scrolling=False)
